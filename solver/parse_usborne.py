@@ -14,13 +14,13 @@ reload(sys)
 sys.setdefaultencoding('utf-8')
 
 language = 'English'
-f = open('usborne.json').read()
+f = open('../data/usborne.json').read()
 data = json.loads(f)
 
 root_url = 'https://usborne.com'
 keys = ['name', 'authors', 'publisher', 'isbn', 'url',
 'img_address', 'price', 'summary', 'format',
-'pagenum', 'categories', 'series']
+'pagenum', 'categories', 'series', 'datePubed', 'age_range']
 
 def write_to_db(dic):
 	db = MySQLdb.connect(host='localhost', user='root', passwd='root', db='en_magic', charset='utf8')
@@ -28,26 +28,34 @@ def write_to_db(dic):
 	for v in keys:
 		if dic.get(v) == None:
 			dic[v] = ''
+		else:
+			dic[v] = MySQLdb.escape_string(dic[v])
+	print 'start'
+	print dic
 	try:
-		pre_sql = "select id from tb_book_pub where url = '%s'" % dic['isbn']
-		if cursor.execute(pre_sql) == 0:
-			sql = "insert into tb_book_pub( \
-				name, authors, publisher, \
-				isbn, url, img_address, \
-				price, summery, datePubed, \
-				language, format, age_range, \
-				pagenum, categories, series) \
-				values ('%s', '%s', '%s', \
-				'%s', '%s', '%s', \
-				'%s', '%s', '%s', \
-				'%s', '%s', '%s', \
-				'%s', '%s', '%s')" \
-				% (dic['name'], dic['authors'], dic['publisher'], \
-				dic['isbn'], dic['url'], dic['img_address'], \
-				dic['price'], dic['summary'], dic['datePubed'], \
-				language, dic['format'], dic['age_range'],
-				dic['pagenum'], dic['categories'], dic['series'])
-			cursor.execute(sql)
+		pre_sql = "select id from tb_book_pub where isbn = '%s'" % dic['isbn']
+		if dic['isbn'] == '':
+			pre_sql = "select id from tb_book_pub where url = '%s'" % dic['url']
+		if cursor.execute(pre_sql) != 0:
+			db.close()
+			return
+		sql = "insert into tb_book_pub( \
+			name, authors, publisher, \
+			isbn, url, img_address, \
+			price, datePubed, \
+			language, format, age_range, \
+			pagenum, categories, series) \
+			values ('%s', '%s', '%s', \
+			'%s', '%s', '%s', \
+			'%s', '%s', \
+			'%s', '%s', '%s', \
+			'%s', '%s', '%s')" \
+			% (dic['name'], dic['authors'], dic['publisher'], \
+			dic['isbn'], dic['url'], dic['img_address'], \
+			dic['price'], dic['datePubed'], \
+			language, dic['format'], dic['age_range'],
+			dic['pagenum'], dic['categories'], dic['series'])
+		cursor.execute(sql)
 		db.commit()
 	except Exception as e:
 		print e
@@ -57,15 +65,24 @@ def write_to_db(dic):
 for age_range in data:
 	ls = data[age_range]
 	for item in ls:
-		item = root_url + item
-		response = requests.get(item)
-		response.encoding = 'utf-8'
-		html = response.text
-		bf = BeautifulSoup(html, 'lxml')
-		dic = {}
-		dic['publisher'] = 'Usborne'
-		dic['age_range'] = age_range
-		dic['url'] = item
+		try:
+			item = root_url + item
+			response = requests.get(item)
+			response.encoding = 'utf-8'
+			html = response.text
+			bf = BeautifulSoup(html, 'lxml')
+			dic = {}
+			dic['publisher'] = 'Usborne'
+			dic['age_range'] = age_range
+			dic['url'] = item
+		except Exception as e:
+			print e
+			continue
+		try:
+			detail_tag = bf.find_all('dl', class_='bookInfo')[0]
+		except Exception as e:
+			print 'no detail', e
+			continue
 		try:
 			img_tag = bf.find_all('div', class_='bookImage')[0]
 			img_tag = img_tag.find_all('img')[0]
@@ -77,11 +94,11 @@ for age_range in data:
 			dic['name'] = name_tag.get_text().strip()
 		except Exception as e:
 			print 'name', e
-		try: #summary
-			summary_tag = bf.find_all('div', attrs={"itemprop":"description"})[0]
-			dic['summary'] = summary_tag.get_text().strip()
-		except Exception as e:
-			print 'summary', e
+		#try: #summary
+		#	summary_tag = bf.find_all('div', attrs={"itemprop":"description"})[0]
+		#	dic['summary'] = summary_tag.get_text().strip()
+		#except Exception as e:
+		#	print 'summary', e
 		try: #price
 			price_tag = bf.find_all('p', class_='formatDetails')[0]
 			dic['price'] = price_tag.get_text().strip()
@@ -101,7 +118,6 @@ for age_range in data:
 			dic['categories'] = '>'.join(cats_v)
 		except Exception as e:
 			print 'categories', e
-		detail_tag = bf.find_all('div', class_='bookInfo')[0]
 		try: #format
 			format_tag = detail_tag.find_all('dt', class_='fullWidth')[0]
 			dic['format'] = format_tag.get_text().strip()
@@ -134,5 +150,4 @@ for age_range in data:
 				print 'Illustrator', e
 		except Exception as e:
 			print 'authors', e
-		print dic
 		write_to_db(dic)

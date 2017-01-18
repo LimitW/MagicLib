@@ -14,7 +14,7 @@ reload(sys)
 sys.setdefaultencoding('utf-8')
 
 language = 'English'
-f = open('scholastic.json').read()
+f = open('../data/scholastic.json').read()
 data = json.loads(f)
 
 keys = ['name', 'authors', 'publisher', 'isbn', 'url',
@@ -27,26 +27,32 @@ def write_to_db(dic):
 	for v in keys:
 		if dic.get(v) == None:
 			dic[v] = ''
+		else:
+			dic[v] = MySQLdb.escape_string(dic[v])
 	try:
-		pre_sql = "select id from tb_book_pub where url = '%s'" % dic['isbn']
-		if cursor.execute(pre_sql) == 0:
-			sql = "insert into tb_book_pub( \
-				name, authors, publisher, \
-				isbn, url, img_address, \
-				price, summery, datePubed, \
-				language, format, age_range, \
-				pagenum, categories, series) \
-				values ('%s', '%s', '%s', \
-				'%s', '%s', '%s', \
-				'%s', '%s', '%s', \
-				'%s', '%s', '%s', \
-				'%s', '%s', '%s')" \
-				% (dic['name'], dic['authors'], dic['publisher'], \
-				dic['isbn'], dic['url'], dic['img_address'], \
-				dic['price'], dic['summary'], dic['datePubed'], \
-				language, dic['format'], dic['age_range'],
-				dic['pagenum'], dic['categories'], dic['series'])
-			cursor.execute(sql)
+		pre_sql = "select id from tb_book_pub where isbn = '%s'" % dic['isbn']
+		if dic['isbn'] == '':
+			pre_sql = "select id from tb_book_pub where url = '%s'" % dic['url']
+		if cursor.execute(pre_sql) != 0:
+			db.close()
+			return
+		sql = "insert into tb_book_pub( \
+			name, authors, publisher, \
+			isbn, url, img_address, \
+			price, datePubed, \
+			language, format, age_range, \
+			pagenum, categories, series) \
+			values ('%s', '%s', '%s', \
+			'%s', '%s', '%s', \
+			'%s', '%s', '%s', \
+			'%s', '%s', '%s', \
+			'%s', '%s', '%s')" \
+			% (dic['name'], dic['authors'], dic['publisher'], \
+			dic['isbn'], dic['url'], dic['img_address'], \
+			dic['price'], dic['datePubed'], \
+			language, dic['format'], dic['age_range'],
+			dic['pagenum'], dic['categories'], dic['series'])
+		cursor.execute(sql)
 		db.commit()
 	except Exception as e:
 		print e
@@ -56,14 +62,17 @@ def write_to_db(dic):
 for age_range in data:
 	ls = data[age_range]
 	for item in ls:
-		response = requests.get(item)
-		response.encoding = 'utf-8'
-		html = response.text
-		#print html
-		bf = BeautifulSoup(html, 'lxml')
-		dic = {}
-		dic['age_range'] = age_range
-		dic['url'] = item
+		try:
+			response = requests.get(item)
+			response.encoding = 'utf-8'
+			html = response.text
+			bf = BeautifulSoup(html, 'lxml')
+			dic = {}
+			dic['age_range'] = age_range
+			dic['url'] = item
+		except Exception as e:
+			print e
+			continue
 		try:
 			img_tag = bf.find_all('div', class_='product-image')[0]
 			img_tag = img_tag.find_all('a')[0]
@@ -85,11 +94,11 @@ for age_range in data:
 			dic['authors'] = ','.join(authors_v)
 		except Exception as e:
 			print e
-		try: #summary
-			summary_tag = bf.find_all('div', attrs={"itemprop":"description"})[0]
-			dic['summary'] = summary_tag.get_text()
-		except Exception as e:
-			print e
+		#try: #summary
+		#	summary_tag = bf.find_all('div', attrs={"itemprop":"description"})[0]
+		#	dic['summary'] = summary_tag.get_text()
+		#except Exception as e:
+		#	print e
 		try: #price
 			price_tag = bf.find_all('span', attrs={"itemprop":"price"})[0]
 			priceCurrency = bf.find_all('span', attrs={"itemprop":"priceCurrency"})[0]
@@ -148,4 +157,5 @@ for age_range in data:
 			dic['series'] = series.get_text().strip()
 		except Exception as e:
 			print e
+		print dic
 		write_to_db(dic)
